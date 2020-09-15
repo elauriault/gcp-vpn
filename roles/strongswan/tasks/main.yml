@@ -1,0 +1,70 @@
+---
+
+- name: Update ipsec config
+  replace:
+    backup: yes
+    path: /etc/strongswan.d/charon.conf
+    regexp: '^(\s*)#(.*install_routes\s*=).*'
+    replace: '\1\2 no'
+  become: yes
+  notify:
+    - restart service
+
+- replace:
+    backup: yes
+    path: /etc/ipsec.conf
+    regexp: '^\s*#(.*uniqueids\s*=\s*no.*)'
+    replace: '\1'
+  become: yes
+  notify:
+    - restart service
+
+- blockinfile:
+    backup: yes
+    path: /etc/ipsec.conf
+    block: |
+        conn %default
+            ikelifetime=600m # 36,000 s
+            keylife=180m # 10,800 s
+            rekeymargin=3m
+            keyingtries=3
+            keyexchange=ikev2
+            mobike=no
+            ike=aes256gcm16-sha512-modp4096
+            esp=aes256gcm16-sha512-modp8192
+            authby=psk
+
+        conn vti0
+            leftupdown="/var/lib/strongswan/ipsec-vti.sh 0 169.254.2.1/30 169.254.2.2/30"
+            left={{ external_ip }} # In case of NAT set to internal IP, e.x. 10.164.0.6
+            leftid={{ external_ip }}
+            leftsubnet=0.0.0.0/0
+            leftauth=psk
+            right={{ tf_result.outputs.tunnel1_address.value }}
+            rightid={{ tf_result.outputs.tunnel1_address.value }}
+            rightsubnet=0.0.0.0/0
+            rightauth=psk
+            type=tunnel
+            auto=start
+            dpdaction=restart
+            mark=%unique
+            leftupdown="/etc/ipsec.d/gcp-updown.sh 0 10.162.0.0/20"
+  become: yes
+  notify:
+    - restart service
+
+- name: Insert/Update ipsec secrets
+  blockinfile:
+    backup: yes
+    path: /etc/ipsec.secrets
+    block: |
+      {{ external_ip }} {{ tf_result.outputs.tunnel1_address.value }} : PSK "{{ tf_result.outputs.tunnel1_preshared_key.value }}"
+  become: yes
+  notify:
+    - restart service
+
+- name: Make sure strongswan is started
+  service:
+    name: strongswan-starter
+    state: started
+  become: yes

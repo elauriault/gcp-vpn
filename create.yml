@@ -1,0 +1,21 @@
+---
+
+- name: create vpn and config strongswan
+  hosts: localhost
+  gather_facts: False
+  pre_tasks:
+    - name: get external ip address
+      ipify_facts:
+    - set_fact: 
+        external_ip: "{{ ipify_public_ip }}"
+    - set_fact: 
+        gcp_state: present
+    - name: generate psk
+      command: pwgen -s 34
+      register: key
+    - set_fact:
+        psk: "{{ key.stdout }}"
+
+  roles:
+    - terraform
+    - strongswan
